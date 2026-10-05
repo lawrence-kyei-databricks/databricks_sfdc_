@@ -18,7 +18,7 @@ A sales rep opens any Account in Salesforce and immediately sees:
 ```
 Salesforce CRM ──(Lakeflow Connect)──> Streaming Tables (sf_*)
                                               │
-CDM (Troy's ETL) ────────────────────> cur_* tables
+CDM source model ────────────────────> cur_* tables
                                               │
                                     ┌─────────┴──────────┐
                                     │  customer_360 Gold  │  SDP Materialized View
