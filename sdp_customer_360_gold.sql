@@ -1,4 +1,3 @@
--- Databricks notebook source
 -- Gold: Customer 360 - unified view joining Salesforce CRM with CDM order health
 -- Source: Lakeflow Connect streaming tables (sf_*) + CDM tables (cur_*)
 
@@ -8,18 +7,17 @@ COMMENT 'Customer 360 gold table joining Salesforce CRM data with CDM order heal
 AS
 WITH
 
--- Parse CDM key from sf_account Description field
+-- Join SF accounts to CDM via stable mapping table (not Description field)
 account_base AS (
   SELECT
     a.Id AS sf_account_id,
     a.Name AS account_name,
     a.Industry AS industry,
     CAST(a.AnnualRevenue AS DOUBLE) AS annual_revenue,
-    CAST(
-      REGEXP_EXTRACT(a.Description, 'CDM Key: (\\d+)', 1)
-      AS INT
-    ) AS customer_shipto_key
+    m.customer_shipto_key
   FROM main.ccg_workshop_cdm.sf_account a
+  JOIN main.ccg_workshop_cdm.sf_cdm_key_mapping m
+    ON a.Id = m.sf_account_id
   WHERE a.AccountSource = 'Databricks Demo'
 ),
 
