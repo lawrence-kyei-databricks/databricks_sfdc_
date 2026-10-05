@@ -4854,3 +4854,68 @@ if resp.status_code == 200:
         print(check_resp.text[:2000])
 else:
     print(f"Request failed: {resp.text[:500]}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enriched v2 Briefing Writeback to Salesforce
+# Write enriched v2 briefings (with deep insight signals) to Salesforce Description field
+# Requires: SF_ACCESS_TOKEN and SF_INSTANCE_URL from cell 3 auth
+
+import json
+
+# Read enriched briefings with revenue trends, peer benchmarks, delivery reliability
+df = spark.sql("""
+    SELECT sf_account_id, account_name, ml_risk_score, risk_category,
+           action_type, action_confidence, urgency_score, exec_attention_prob,
+           top_risk_driver, recommendations,
+           rev_trend_pct, revenue_at_risk, risk_vs_industry, industry, 
+           pct_delivery_pushed
+    FROM main.ccg_workshop_cdm.account_briefing_v2
+""").collect()
+
+print(f"Accounts to update: {len(df)}")
+
+# Build enriched JSON payloads
+records = []
+for row in df:
+    briefing = {
+        "risk_score": row.ml_risk_score,
+        "risk_category": row.risk_category,
+        "action_type": row.action_type,
+        "action_confidence": float(row.action_confidence) if row.action_confidence else 0,
+        "urgency_score": float(row.urgency_score) if row.urgency_score else 0,
+        "exec_attention_prob": float(row.exec_attention_prob) if row.exec_attention_prob else 0,
+        "top_risk_driver": row.top_risk_driver,
+        "recommendations": row.recommendations,
+        # Deep insight signals (NEW in v2)
+        "rev_trend_pct": float(row.rev_trend_pct) if row.rev_trend_pct is not None else None,
+        "revenue_at_risk": int(row.revenue_at_risk) if row.revenue_at_risk else 0,
+        "risk_vs_industry": float(row.risk_vs_industry) if row.risk_vs_industry else 0,
+        "industry": row.industry,
+        "delivery_pushed_pct": float(row.pct_delivery_pushed) if row.pct_delivery_pushed else 0
+    }
+    records.append({
+        "attributes": {"type": "Account"},
+        "Id": row.sf_account_id,
+        "Description": json.dumps(briefing, ensure_ascii=False)
+    })
+
+# Bulk update (uses SF_ACCESS_TOKEN from cell 3)
+sf_headers = {"Authorization": f"Bearer {SF_ACCESS_TOKEN}", "Content-Type": "application/json"}
+resp = requests.patch(
+    f"{SF_INSTANCE_URL}/services/data/v59.0/composite/sobjects",
+    headers=sf_headers,
+    json={"records": records, "allOrNone": False}
+)
+results = resp.json()
+success_count = sum(1 for r in results if r.get("success"))
+failed_count = sum(1 for r in results if not r.get("success"))
+print(f"Results: {success_count} success, {failed_count} failed")
+
+if failed_count > 0:
+    errors = [r for r in results if not r.get("success")][:3]
+    for e in errors:
+        print(f"  Error: {e}")
+else:
+    print(f"All {success_count} accounts updated with enriched v2 briefings")
+    print(f"New fields in JSON: rev_trend_pct, revenue_at_risk, risk_vs_industry, delivery_pushed_pct")
